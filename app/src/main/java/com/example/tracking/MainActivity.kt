@@ -43,6 +43,7 @@ class MainActivity : Activity(),LocationListener,SensorEventListener {
     var lastKnownLocation: Location? = null
     var lat : Double = 0.0
     var lon : Double = 0.0
+    var positionNum = 0 // 초기에 위치를 잡을 때 최소한의 횟수
 
     //세분화된 좌표를 저장할 배열
     var midpointList = arrayListOf<List<Double>>() //[0]=>lat, [1]=>lon
@@ -50,7 +51,7 @@ class MainActivity : Activity(),LocationListener,SensorEventListener {
     //api를 통해 얻은 JSON을 파싱해서 가져온 이중배열 좌표
     var rawRoute = arrayListOf<List<Double>>() //[0]=>lon, [1]=>lat
 
-    //현재좌표가 계속 바뀔 때마다 반복문에 사용한 변수
+    //경로 이탈에 사용한 변수
     var i = 0
 
     //목적지 좌표
@@ -126,6 +127,8 @@ class MainActivity : Activity(),LocationListener,SensorEventListener {
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         lastKnownLocation = locationManager!!.getLastKnownLocation(LocationManager.GPS_PROVIDER)
 
+        ttsSpeak("현재 위치 조정중입니다.")
+
         if(lastKnownLocation!=null){
             lon = lastKnownLocation!!.longitude
             lat = lastKnownLocation!!.altitude
@@ -157,16 +160,21 @@ class MainActivity : Activity(),LocationListener,SensorEventListener {
             text1.text = java.lang.Double.toString(lon)
             text2.text = java.lang.Double.toString(lat)
 
+            if(positionNum==3){
+                ttsSpeak("위치 조정이 완료되었습니다. 버튼을 눌러 목적지를 말하세요.")
+            }
+            positionNum++
+
             //경로이탈인지 아닌지 판단
             if(midpointList.isNotEmpty()){
-                if (getDistance(lat, lon, midpointList[i][0],midpointList[i][1])>2){
-                    if(getDistance(lat,lon,midpointList[i+1][0],midpointList[i+1][1])>2){
+                if (getDistance(lat, lon, midpointList[i][0],midpointList[i][1])>2){  //p1에서 멀어졌는데
+                    if(getDistance(lat,lon,midpointList[i+1][0],midpointList[i+1][1])>2){  //p2에서도 멀어졌다.
                         //경로이탈
-                        Log.d("로그경로","${i}"+"번째 point")
-                        Log.d("로그경로","현재위치 : "+"${lat}"+", "+"${lon}")
-                        Log.d("로그경로","p1 : "+"${midpointList[i][0]}"+", "+"${midpointList[i][1]}")
-                        Log.d("로그경로","p2 : "+"${midpointList[i+1][0]}"+", "+"${midpointList[i+1][1]}")
-                        vibrator.vibrate(100)
+                        Log.d("로그경로이탈","${i}"+"번째 point")
+                        Log.d("로그경로이탈","현재위치 : "+"${lat}"+", "+"${lon}")
+                        Log.d("로그경로이탈","p1 : "+"${midpointList[i][0]}"+", "+"${midpointList[i][1]}")
+                        Log.d("로그경로이탈","p2 : "+"${midpointList[i+1][0]}"+", "+"${midpointList[i+1][1]}")
+                        ttsSpeak("경로를 이탈했습니다. 경로를 재탐색합니다.")
 
                         //경로이탈 시 재탐색
                         getRoute(lon,lat,destinationPoint[1],destinationPoint[0],startname,endname)
@@ -191,170 +199,34 @@ class MainActivity : Activity(),LocationListener,SensorEventListener {
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    //두 좌표를 주면 그 사이의 좌표를 이중배열형태로 저장해줌.
-    fun midPoint(lat1: Double, lon1: Double, lat2: Double, lon2: Double, midpointList : ArrayList<List<Double>>) {
-        if(getDistance(lat1,lon1,lat2,lon2)>1) {
-            var nlat1 = lat1
-            var nlon1 = lon1
-            var nlat2 = lat2
-            val dLon = Math.toRadians(lon2 - lon1)
-
-            //convert to radians
-            nlat1 = Math.toRadians(nlat1)
-            nlat2 = Math.toRadians(nlat2)
-            nlon1 = Math.toRadians(nlon1)
-            val Bx = Math.cos(nlat2) * Math.cos(dLon)
-            val By = Math.cos(nlat2) * Math.sin(dLon)
-
-            var lat3 = Math.atan2(
-                Math.sin(nlat1) + Math.sin(nlat2),
-                Math.sqrt((Math.cos(nlat1) + Bx) * (Math.cos(nlat1) + Bx) + By * By)
-            )
-            var lon3 = nlon1 + Math.atan2(By, Math.cos(nlat1) + Bx)
-
-            lat3 = Math.toDegrees(lat3)
-            lon3 = Math.toDegrees(lon3)
-
-            midpointList.add(listOf(lat3, lon3))
-
-            midPoint(lat1, lon1, lat3, lon3, midpointList)
-            midPoint(lat3, lon3, lat2, lon2, midpointList)
-        }
-    }
-
-    fun getDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-        val dLat = Math.toRadians(lat2 - lat1)
-        val dLon = Math.toRadians(lon2 - lon1)
-        val a = Math.sin(dLat / 2).pow(2.0) + Math.sin(dLon / 2).pow(2.0) * Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
-        val c = 2 * Math.asin(Math.sqrt(a))
-        return (6372.8 * 1000 * c)
-    }
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-
-
-
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    override fun onStart() {  //실제 사용자 권한
-        super.onStart()
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-            && ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            //권한이 없을 경우 최초 권한 요청 또는 사용자에 의한 재요청 확인
-            if (ActivityCompat.shouldShowRequestPermissionRationale(
-                    this,
-                    Manifest.permission.ACCESS_FINE_LOCATION
-                ) &&
-                ActivityCompat.shouldShowRequestPermissionRationale(
-                    this,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-                )
-            ) {
-                // 권한 재요청
-                ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(
-                        Manifest.permission.ACCESS_FINE_LOCATION,
-                        Manifest.permission.ACCESS_COARSE_LOCATION
-                    ),
-                    100
-                )
-                return
-            } else {
-                ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(
-                        Manifest.permission.ACCESS_FINE_LOCATION,
-                        Manifest.permission.ACCESS_COARSE_LOCATION
-                    ),
-                    100
-                )
-                return
-            }
-        }
-    }
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-
-
-
-
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    //물리버튼을 눌러 STT를 실행
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if(keyCode==KeyEvent.KEYCODE_BACK){
-            Log.d("로그","뒤로가기버튼누름.");
-            displaySpeechRecognizer()
-            return true;
-        }
-        return super.onKeyDown(keyCode, event)
-    }
-
-    private fun displaySpeechRecognizer() {
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-        }
-        startActivityForResult(intent, 0)
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent) {
-        if (requestCode == 0 && resultCode == Activity.RESULT_OK) {
-            val spokenText: String? =
-                data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS).let { results ->
-                    results!![0]
-                }
-            Log.d("로그","STT : "+"${spokenText}");
-
-            if (spokenText != null) {
-                getPOI(spokenText)
-            }
-        }
-        super.onActivityResult(requestCode, resultCode, data)
-    }
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-
-
-
-
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    ///////////////////////////////////////////////////////////////////////////////////////////////
     //api호출 함수
     fun getPOI(location : String){
         destinationPoint.clear()
         RetrofitManager.instance.searchPOI(searchKeyword = location,completion = {
                 responseState, parsePOIDataArray ->
 
-                when(responseState){
-                    Constant.RESPONSE_STATE.OKAY->{  //만약 STATE가 OKEY라면
-                        Log.d("로그", " POI api호출 성공")
-                        if (parsePOIDataArray != null) {
-                            Log.d("로그", "결과 좌표 : "+"${parsePOIDataArray.get(0).frontLat}"+", "+"${parsePOIDataArray.get(0).frontLon}")
-                            ttsSpeak("${parsePOIDataArray.get(0).name}"+" 으로 안내합니다.")
-                            destinationPoint.add(parsePOIDataArray.get(0).frontLat.toDouble())
-                            destinationPoint.add(parsePOIDataArray.get(0).frontLon.toDouble())
+            when(responseState){
+                Constant.RESPONSE_STATE.OKAY->{  //만약 STATE가 OKEY라면
+                    Log.d("로그", " POI api호출 성공")
+                    if (parsePOIDataArray != null) {
+                        Log.d("로그", "결과 좌표 : "+"${parsePOIDataArray.get(0).frontLat}"+", "+"${parsePOIDataArray.get(0).frontLon}")
+                        ttsSpeak("${parsePOIDataArray.get(0).name}"+" 으로 안내합니다.")
+                        destinationPoint.add(parsePOIDataArray.get(0).frontLat.toDouble())
+                        destinationPoint.add(parsePOIDataArray.get(0).frontLon.toDouble())
 
-                            //rawRoute를 얻음
-                            getRoute(lon,lat,destinationPoint[1],destinationPoint[0],startname,endname)
-                            //getRoute(127.0690745902964,37.83296140345568,destinationPoint[1],destinationPoint[0],startname,endname)
-                        }
-                    }
-                    Constant.RESPONSE_STATE.FAIL->{//만약 STATE가 FAIL라면
-                        Log.d("로그", " POIapi호출 실패")
-                    }
-                    Constant.RESPONSE_STATE.NO_CONTENT->{//만약 NO_CONTENT가 FAIL라면
-                        Log.d("로그", " POI 결과가 없습니다.")
+                        //rawRoute를 얻음
+                        getRoute(lon,lat,destinationPoint[1],destinationPoint[0],startname,endname)
+                        //getRoute(127.0690745902964,37.83296140345568,destinationPoint[1],destinationPoint[0],startname,endname)
                     }
                 }
-            })
+                Constant.RESPONSE_STATE.FAIL->{//만약 STATE가 FAIL라면
+                    Log.d("로그", " POIapi호출 실패")
+                }
+                Constant.RESPONSE_STATE.NO_CONTENT->{//만약 NO_CONTENT가 FAIL라면
+                    Log.d("로그", " POI 결과가 없습니다.")
+                }
+            }
+        })
     }
 
     fun getRoute(startx : Double, starty : Double, endx : Double, endy : Double, startname : String, endname : String){
@@ -409,6 +281,170 @@ class MainActivity : Activity(),LocationListener,SensorEventListener {
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////////
+
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    //방향조정관련
+    fun adjustHeading(lat2: Double,lon2: Double){
+        Log.d("로그","adjustHeading호출")
+        //여기서 lat2와 lon2는 현재좌표에서 이동할 다음좌표
+        while (true){
+            if(abs(azimuthinDegress-getAngle(lat,lon,lat2,lon2))<3f){
+                vibrator.vibrate(1000)
+                break
+            }
+        }
+    }
+
+    fun getAngle(lat1: Double,lon1: Double,lat2: Double,lon2: Double) : Float{
+        var y1 = lat1*Math.PI/180
+        var y2 = lat2*Math.PI/180
+        var x1 = lon1*Math.PI/180
+        var x2 = lon2*Math.PI/180
+
+        var x=Math.sin(x2-x1)*Math.cos(y2)
+        var y=Math.cos(y1)*Math.sin(y2)-Math.sin(y1)*Math.cos(y2)*Math.cos(x2-x1)
+        var rad=Math.atan2(x,y)
+        var bearing : Float=((rad*180/Math.PI+360)%360).toFloat()
+        return bearing
+    }
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    //두 좌표를 주면 그 사이의 좌표를 이중배열형태로 저장해줌.
+    fun midPoint(lat1: Double, lon1: Double, lat2: Double, lon2: Double, midpointList : ArrayList<List<Double>>) {
+        if(getDistance(lat1,lon1,lat2,lon2)>1) {
+            var nlat1 = lat1
+            var nlon1 = lon1
+            var nlat2 = lat2
+            val dLon = Math.toRadians(lon2 - lon1)
+
+            //convert to radians
+            nlat1 = Math.toRadians(nlat1)
+            nlat2 = Math.toRadians(nlat2)
+            nlon1 = Math.toRadians(nlon1)
+            val Bx = Math.cos(nlat2) * Math.cos(dLon)
+            val By = Math.cos(nlat2) * Math.sin(dLon)
+
+            var lat3 = Math.atan2(
+                Math.sin(nlat1) + Math.sin(nlat2),
+                Math.sqrt((Math.cos(nlat1) + Bx) * (Math.cos(nlat1) + Bx) + By * By)
+            )
+            var lon3 = nlon1 + Math.atan2(By, Math.cos(nlat1) + Bx)
+
+            lat3 = Math.toDegrees(lat3)
+            lon3 = Math.toDegrees(lon3)
+
+            midpointList.add(listOf(lat3, lon3))
+
+            midPoint(lat1, lon1, lat3, lon3, midpointList)
+            midPoint(lat3, lon3, lat2, lon2, midpointList)
+        }
+    }
+
+    fun getDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = Math.sin(dLat / 2).pow(2.0) + Math.sin(dLon / 2).pow(2.0) * Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+        val c = 2 * Math.asin(Math.sqrt(a))
+        return (6372.8 * 1000 * c)
+    }
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    override fun onStart() {  //실제 사용자 권한
+        super.onStart()
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+            && ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            //권한이 없을 경우 최초 권한 요청 또는 사용자에 의한 재요청 확인
+            if (ActivityCompat.shouldShowRequestPermissionRationale(
+                    this,
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                ) &&
+                ActivityCompat.shouldShowRequestPermissionRationale(
+                    this,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            ) {
+                // 권한 재요청
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    ),
+                    100
+                )
+                return
+            } else {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    ),
+                    100
+                )
+                return
+            }
+        }
+    }
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    //물리버튼을 눌러 STT를 실행
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if(keyCode==KeyEvent.KEYCODE_BACK){
+            Log.d("로그","뒤로가기버튼누름.");
+            displaySpeechRecognizer()
+            return true;
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    private fun displaySpeechRecognizer() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        }
+        startActivityForResult(intent, 0)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent) {
+        if (requestCode == 0 && resultCode == Activity.RESULT_OK) {
+            val spokenText: String? =
+                data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS).let { results ->
+                    results!![0]
+                }
+            Log.d("로그","STT : "+"${spokenText}");
+
+            if (spokenText != null) {
+                getPOI(spokenText)
+            }
+        }
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+
+
 
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -475,34 +511,6 @@ class MainActivity : Activity(),LocationListener,SensorEventListener {
     ///////////////////////////////////////////////////////////////////////////////////////////////
 
 
-
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    //방향조정관련
-    fun adjustHeading(lat2: Double,lon2: Double){
-        //여기서 lat2와 lon2는 현재좌표에서 이동할 다음좌표
-        while (true){
-            if(abs(azimuthinDegress-getAngle(lat,lon,lat2,lon2))<3f){
-                //vibrator.vibrate(1000)
-                break
-            }
-        }
-    }
-
-    fun getAngle(lat1: Double,lon1: Double,lat2: Double,lon2: Double) : Float{
-        var y1 = lat1*Math.PI/180
-        var y2 = lat2*Math.PI/180
-        var x1 = lon1*Math.PI/180
-        var x2 = lon2*Math.PI/180
-
-        var x=Math.sin(x2-x1)*Math.cos(y2)
-        var y=Math.cos(y1)*Math.sin(y2)-Math.sin(y1)*Math.cos(y2)*Math.cos(x2-x1)
-        var rad=Math.atan2(x,y)
-        var bearing : Float=((rad*180/Math.PI+360)%360).toFloat()
-        return bearing
-    }
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-    ///////////////////////////////////////////////////////////////////////////////////////////////
 
 
     override fun onLocationChanged(p0: Location) { }
